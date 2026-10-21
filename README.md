@@ -9,11 +9,19 @@ A student/demo movie-booking app with sample catalogue and show schedules, regis
 - MongoDB Atlas (recommended) or local MongoDB
 - Optional Razorpay **test-mode** keys for test checkout
 
+## Technology stack
+- Node.js and Express for the API; MongoDB and Mongoose for data storage
+- React, React Router, Vite, Axios, and Tailwind CSS for the client
+- JWT authentication with bcryptjs password hashing
+- Socket.IO for live seat availability updates, with periodic refresh as a fallback
+- Razorpay test Checkout for the optional payment flow
+- Postman collection and local environment for API exploration
+
 ## Windows / VS Code quick start
 1. Clone this repository and open the `imovies` folder in VS Code.
 2. In `server`, copy `.env.example` to `.env`.
 3. In `server/.env`, set `MONGODB_URI` to your MongoDB Atlas connection string and set `JWT_SECRET` to a long random secret. Keep this file private; never commit it or share screenshots with secrets visible.
-4. Optional: add Razorpay **Test Mode** `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Never put the secret in client-side code.
+5. Optional: add Razorpay **Test Mode** `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Never put the secret in client-side code.
 6. In a terminal at the root `imovies` folder, run:
    ```bash
    npm run install:all
@@ -30,6 +38,8 @@ Copy `server/.env.example` to `server/.env` for local use. For deployment, set t
 - `MONGODB_URI`: MongoDB connection string
 - `JWT_SECRET`: long random secret
 - `CLIENT_URL`: deployed frontend origin (for example, your frontend hosting URL)
+- `VITE_API_URL`: client build-time API base URL ending in `/api`
+- `VITE_SOCKET_URL`: client build-time Socket.IO server origin (defaults to the origin from `VITE_API_URL`)
 - `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`: optional Razorpay test keys
 - `PORT`: supplied automatically by many hosts; defaults to 5000
 
@@ -42,8 +52,8 @@ Register a normal user first. For local development, promote that user's `role` 
 ## Deployment outline
 1. Create a MongoDB Atlas database and allow network access only as required by your backend host.
 2. Deploy `server` to a Node.js host (for example Render or Railway). Set its environment variables in the host dashboard, including `MONGODB_URI`, `JWT_SECRET`, and `CLIENT_URL`.
-3. Deploy `client` as a static Vite site. Build command: `npm run build`; publish directory: `dist`. Set `VITE_API_URL` to the deployed backend API base URL ending in `/api` (for example `https://your-api-host.example/api`) **before building**.
-4. Configure backend CORS `CLIENT_URL` to the exact deployed frontend origin.
+3. Deploy `client` as a static Vite site. Build command: `npm run build`; publish directory: `dist`. Set `VITE_API_URL` to the deployed backend API base URL ending in `/api` and `VITE_SOCKET_URL` to the backend origin **before building**. The socket host must allow WebSocket connections.
+4. Configure backend CORS `CLIENT_URL` to the exact deployed frontend origin for both Express and Socket.IO.
 5. Verify the deployed backend `/api/health`, then test registration, login, show listing, seat holds, payment in Razorpay test mode, QR ticket, and booking history.
 6. Keep `.env` out of Git and never expose `RAZORPAY_KEY_SECRET` or `JWT_SECRET` to the frontend.
 
@@ -54,6 +64,9 @@ This is not production-ready for real-world ticket sales. Before real customers 
 - Root: `npm run install:all`, `npm run dev`
 - Server: `npm run dev --prefix server`, `npm run seed:demo --prefix server`
 - Client: `npm run build --prefix client`
+
+## Postman
+Import `postman/IMovies.postman_collection.json` and `postman/IMovies-Local.postman_environment.json` into Postman, select the **IMovies Local** environment, and start the API. Register a demo user, then run **Login**; the collection saves the returned JWT in the environment automatically. To exercise seat holds and the demo booking, set `showId` and choose currently available `seat1`/`seat2` values from the seat inventory response. Admin requests require an account whose role has been promoted in MongoDB.
 
 ## Demo sample ticket (no Razorpay keys needed)
 

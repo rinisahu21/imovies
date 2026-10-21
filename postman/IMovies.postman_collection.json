@@ -1,0 +1,54 @@
+{
+  "info": {
+    "name": "IMovies Booking API",
+    "description": "Local API requests for the IMovies Express and MongoDB project. Set the IMovies Local environment, start the server, register a user, and sign in to populate the token automatically. To call admin routes, promote the account to admin in the local database first.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        { "name": "API health", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/health" } }
+      ]
+    },
+    {
+      "name": "Authentication and profile",
+      "item": [
+        { "name": "Register user", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "auth": { "type": "noauth" }, "body": { "mode": "raw", "raw": "{\n  \"name\": \"{{name}}\",\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/auth/register" } },
+        { "name": "Login (saves token)", "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["if (pm.response.code === 200) {", "  const body = pm.response.json();", "  if (body.token) pm.environment.set('token', body.token);", "  if (body.user?.id) pm.environment.set('userId', body.user.id);", "}"] } }], "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "auth": { "type": "noauth" }, "body": { "mode": "raw", "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/auth/login" } },
+        { "name": "Current user", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/auth/me" } },
+        { "name": "Update profile", "request": { "method": "PATCH", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"name\": \"{{name}}\",\n  \"email\": \"{{email}}\"\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/auth/profile" } }
+      ]
+    },
+    {
+      "name": "Catalogue and seat inventory",
+      "item": [
+        { "name": "List movies", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/movies" } },
+        { "name": "Movie details (movieId)", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/movies/{{movieId}}" } },
+        { "name": "List theatres", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/theatres" } },
+        { "name": "List upcoming shows", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/shows" } },
+        { "name": "Seat inventory (showId)", "request": { "method": "GET", "header": [], "auth": { "type": "noauth" }, "url": "{{baseUrl}}/shows/{{showId}}/seats" } },
+        { "name": "Hold seats (seat1, seat2)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"seats\": [\"{{seat1}}\", \"{{seat2}}\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/shows/{{showId}}/locks" } },
+        { "name": "Release held seats", "request": { "method": "DELETE", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"seats\": [\"{{seat1}}\", \"{{seat2}}\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/shows/{{showId}}/locks" } }
+      ]
+    },
+    {
+      "name": "Bookings",
+      "item": [
+        { "name": "Create demo booking (no payment)", "request": { "method": "POST", "header": [{ "key": "Content-Type", "value": "application/json" }], "body": { "mode": "raw", "raw": "{\n  \"showId\": \"{{showId}}\",\n  \"seats\": [\"{{seat1}}\", \"{{seat2}}\"]\n}", "options": { "raw": { "language": "json" } } }, "url": "{{baseUrl}}/bookings/demo" } },
+        { "name": "My bookings", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/bookings/mine" } }
+      ]
+    },
+    {
+      "name": "Admin (admin account required)",
+      "item": [
+        { "name": "Dashboard summary", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/summary" } },
+        { "name": "All customer bookings", "request": { "method": "GET", "header": [], "url": "{{baseUrl}}/admin/bookings" } }
+      ]
+    }
+  ]
+}
