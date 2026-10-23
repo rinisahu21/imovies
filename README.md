@@ -57,6 +57,12 @@ Register a normal user first. For local development, promote that user's `role` 
 5. Verify the deployed backend `/api/health`, then test registration, login, show listing, seat holds, payment in Razorpay test mode, QR ticket, and booking history.
 6. Keep `.env` out of Git and never expose `RAZORPAY_KEY_SECRET` or `JWT_SECRET` to the frontend.
 
+## Public interactive demo (GitHub Pages)
+
+This repository includes a static, browser-only demo build designed for GitHub Pages, with sample movies, shows, seat availability, watchlist and bookings. It deliberately does not call the project API, require account credentials, or process payments. Demo bookings and saved movies stay in the visitor's browser. The normal Vite build and local React/Express app continue to use the existing API.
+
+The GitHub Actions workflow at `.github/workflows/deploy-pages.yml` builds and deploys the demo whenever client files are pushed to `main`. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. After the first successful workflow run, the site is available at `https://rinisahu21.github.io/imovies/`.
+
 ## Production readiness checklist
 This is not production-ready for real-world ticket sales. Before real customers or live payments, implement and test atomic seat claims/transactions, payment webhooks and reconciliation, refund API integration, real theatre/showtime inventory from an authorized provider, stronger admin provisioning, HTTPS, logging/monitoring, backup/restore, privacy and data-retention policies, and end-to-end tests with concurrent users. Cancellation currently updates local booking status only; it does not issue a real Razorpay refund.
 
