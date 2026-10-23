@@ -59,7 +59,7 @@ Register a normal user first. For local development, promote that user's `role` 
 
 ## Public interactive demo (GitHub Pages)
 
-This repository includes a static, browser-only demo build designed for GitHub Pages, with sample movies, shows, seat availability, watchlist and bookings. It deliberately does not call the project API, require account credentials, or process payments. Demo bookings and saved movies stay in the visitor's browser. The normal Vite build and local React/Express app continue to use the existing API.
+This repository includes a static, browser-only demo build designed for GitHub Pages, styled with Tailwind CSS plus the app's custom responsive styles. It includes sample movies, shows, seat availability, watchlist and bookings. It deliberately does not call the project API, require account credentials, or process payments. Demo bookings and saved movies stay in the visitor's browser. The normal Vite build and local React/Express app continue to use the existing API.
 
 The GitHub Actions workflow at `.github/workflows/deploy-pages.yml` builds and deploys the demo whenever client files are pushed to `main`. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. After the first successful workflow run, the site is available at `https://rinisahu21.github.io/imovies/`.
 
