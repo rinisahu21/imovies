@@ -1,6 +1,17 @@
-# IMovies MERN Booking App
+# IMovies — Movie Booking App
 
-A student/demo movie-booking app with sample catalogue and show schedules, registration/login, search and genre filtering, theatre/show comparison, temporary seat holds, booking history, QR tickets, admin catalogue tools, and optional Razorpay test Checkout integration.
+IMovies is my full-stack movie-booking project. I made it to bring movie discovery, theatre showtimes, and seat booking into one app. It includes a React client, an Express API, and MongoDB storage, with separate flows for moviegoers and admins.
+
+**Try the interactive demo:** [rinisahu21.github.io/imovies](https://rinisahu21.github.io/imovies/). It uses sample data in the browser; it is not connected to the booking API.
+
+## What the app can do
+
+- Browse and search movies, then compare showtimes by theatre.
+- Select seats, place temporary holds, and review bookings with QR tickets.
+- Save movies to a watchlist and update profile and theme settings.
+- Use admin pages to manage the catalogue, theatres, shows, and bookings.
+
+The repository also includes a local Express API, MongoDB models, Socket.IO seat updates, an optional Razorpay test-checkout flow, and a Postman collection.
 
 **Important:** The seeded movies, theatres, showtimes, prices, and seat inventory are fictional demo data. TMDB provides movie metadata/posters, not real local theatre schedules or available seats. Razorpay test mode verifies the payment flow but does not charge real money. Do not use this app for real customer payments or real bookings until the production checklist below is completed.
 
@@ -21,14 +32,14 @@ A student/demo movie-booking app with sample catalogue and show schedules, regis
 1. Clone this repository and open the `imovies` folder in VS Code.
 2. In `server`, copy `.env.example` to `.env`.
 3. In `server/.env`, set `MONGODB_URI` to your MongoDB Atlas connection string and set `JWT_SECRET` to a long random secret. Keep this file private; never commit it or share screenshots with secrets visible.
-5. Optional: add Razorpay **Test Mode** `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Never put the secret in client-side code.
-6. In a terminal at the root `imovies` folder, run:
+4. Optional: add Razorpay **Test Mode** `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Never put the secret in client-side code.
+5. In a terminal at the root `imovies` folder, run:
    ```bash
    npm run install:all
    npm run seed:demo --prefix server
    npm run dev
    ```
-7. Open `http://localhost:5173`. Backend health check: `http://localhost:5000/api/health`.
+6. Open `http://localhost:5173`. Backend health check: `http://localhost:5000/api/health`.
 
 The seed command explicitly loads `server/.env`, so it works even when you run it from the project root. It creates sample movies, sample theatres, and upcoming sample shows for demonstration. It can be rerun safely to update the sample movie/theatre records; existing future shows are not duplicated if future shows already exist.
 
@@ -63,7 +74,7 @@ This repository includes a static, browser-only demo build designed for GitHub P
 
 The GitHub Actions workflow at `.github/workflows/deploy-pages.yml` builds and deploys the demo whenever client files are pushed to `main`. In the repository settings, set **Pages → Build and deployment → Source** to **GitHub Actions**. After the first successful workflow run, the site is available at `https://rinisahu21.github.io/imovies/`.
 
-## Production readiness checklist
+## Current limitations and next steps
 This is not production-ready for real-world ticket sales. Before real customers or live payments, implement and test atomic seat claims/transactions, payment webhooks and reconciliation, refund API integration, real theatre/showtime inventory from an authorized provider, stronger admin provisioning, HTTPS, logging/monitoring, backup/restore, privacy and data-retention policies, and end-to-end tests with concurrent users. Cancellation currently updates local booking status only; it does not issue a real Razorpay refund.
 
 ## Scripts

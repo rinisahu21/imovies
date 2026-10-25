@@ -1,11 +1,312 @@
-import {Router} from 'express'; import Razorpay from 'razorpay'; import crypto from 'node:crypto'; import QRCode from 'qrcode'; import {Booking,Show,SeatLock} from '../models/index.js'; import {protect} from '../middleware/auth.js'; import {asyncHandler} from '../utils/asyncHandler.js';
-const r=Router();
-function razorpayClient(){if(!process.env.RAZORPAY_KEY_ID||!process.env.RAZORPAY_KEY_SECRET)throw Object.assign(new Error('Razorpay test keys are missing. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to server/.env.'),{status:503});return new Razorpay({key_id:process.env.RAZORPAY_KEY_ID,key_secret:process.env.RAZORPAY_KEY_SECRET});}
-r.post('/payment/order',protect,asyncHandler(async(req,res)=>{const {showId,seats}=req.body;const chosen=[...new Set((seats||[]).map(String))];if(!showId||!chosen.length||chosen.length>6)return res.status(400).json({message:'Choose 1–6 seats and a show.'});const show=await Show.findById(showId).populate('movie').populate('theatre');if(!show||!show.isActive||show.startTime<=new Date())return res.status(404).json({message:'Show is unavailable.'});const now=new Date();const locks=await SeatLock.find({show:showId,user:req.user._id,seatLabel:{$in:chosen},expiresAt:{$gt:now}});if(locks.length!==chosen.length)return res.status(409).json({message:'Your seat hold expired. Select the seats again.'});const booked=await Booking.findOne({show:showId,status:'confirmed',seats:{$in:chosen}});if(booked)return res.status(409).json({message:'One or more seats are already booked.'});const amount=Math.round(Number(show.price)*chosen.length*100);if(!Number.isFinite(amount)||amount<100)return res.status(400).json({message:'Invalid booking amount.'});const order=await razorpayClient().orders.create({amount,currency:'INR',receipt:`imv_${Date.now()}`,notes:{userId:String(req.user._id),showId:String(showId),seats:chosen.join(',')}});res.json({orderId:order.id,amount:order.amount,currency:order.currency,keyId:process.env.RAZORPAY_KEY_ID,show:{title:show.movie?.title,theatre:show.theatre?.name},seats:chosen});}));
-r.post('/payment/verify',protect,asyncHandler(async(req,res)=>{const {razorpay_order_id,razorpay_payment_id,razorpay_signature,showId,seats}=req.body;if(!process.env.RAZORPAY_KEY_SECRET)return res.status(503).json({message:'Razorpay test keys are not configured.'});const expected=crypto.createHmac('sha256',process.env.RAZORPAY_KEY_SECRET).update(`${razorpay_order_id}|${razorpay_payment_id}`).digest('hex');if(!razorpay_signature||Buffer.byteLength(expected)!==Buffer.byteLength(razorpay_signature)||!crypto.timingSafeEqual(Buffer.from(expected),Buffer.from(razorpay_signature)))return res.status(400).json({message:'Payment signature verification failed.'});const client=razorpayClient();const [gatewayOrder,gatewayPayment]=await Promise.all([client.orders.fetch(razorpay_order_id),client.payments.fetch(razorpay_payment_id)]);const chosen=[...new Set((seats||[]).map(String))];if(gatewayPayment.order_id!==razorpay_order_id||gatewayPayment.status!=='captured'||gatewayPayment.amount!==gatewayOrder.amount||gatewayOrder.notes?.userId!==String(req.user._id)||gatewayOrder.notes?.showId!==String(showId)||gatewayOrder.notes?.seats!==chosen.join(','))return res.status(400).json({message:'Payment/order details do not match this booking.'});const show=await Show.findById(showId);if(!show)return res.status(404).json({message:'Show not found.'});const now=new Date();const locks=await SeatLock.find({show:showId,user:req.user._id,seatLabel:{$in:chosen},expiresAt:{$gt:now}});if(!chosen.length||locks.length!==chosen.length)return res.status(409).json({message:'Payment verified, but seat hold expired. Contact support before retrying.'});const conflict=await Booking.findOne({show:showId,status:'confirmed',seats:{$in:chosen}});if(conflict)return res.status(409).json({message:'Seat conflict detected. Contact support with your payment ID.'});const ticketCode=crypto.randomBytes(12).toString('hex');const booking=await Booking.create({user:req.user._id,show:showId,seats:chosen,amount:show.price*chosen.length,status:'confirmed',paymentStatus:'paid_test',ticketCode});await SeatLock.deleteMany({_id:{$in:locks.map(l=>l._id)}});req.app.get("io")?.to("show:"+showId).emit("seats-updated",{showId:String(showId)});const populated=await Booking.findById(booking._id).populate({path:'show',populate:[{path:'movie'},{path:'theatre'}]});const qrData=await QRCode.toDataURL(JSON.stringify({ticketCode,bookingId:String(booking._id),paymentId:razorpay_payment_id}));res.status(201).json({booking:populated,qrData,paymentId:razorpay_payment_id,note:'Payment signature verified in Razorpay test mode. No real money was charged.'});}));
-r.post('/demo',protect,asyncHandler(async(req,res)=>{const {showId}=req.body;const chosen=Array.isArray(req.body.seats)?[...new Set(req.body.seats.map(String))]:[];if(!showId||!chosen.length||chosen.length>6)return res.status(400).json({message:'Choose 1–6 seats and a show.'});const show=await Show.findById(showId);if(!show||!show.isActive||show.startTime<=new Date())return res.status(404).json({message:'Show is unavailable.'});const labels=show.seatLabels?.length?show.seatLabels:Array.from({length:show.rows},(_,i)=>Array.from({length:show.seatsPerRow},(_,j)=>`${String.fromCharCode(65+i)}${j+1}`)).flat();if(chosen.some(seat=>!labels.includes(seat)))return res.status(400).json({message:'One or more selected seats are invalid.'});const now=new Date();const locks=await SeatLock.find({show:showId,user:req.user._id,seatLabel:{$in:chosen},expiresAt:{$gt:now}});if(locks.length!==chosen.length)return res.status(409).json({message:'Your seat hold expired. Select the seats again.'});const conflict=await Booking.findOne({show:showId,status:'confirmed',seats:{$in:chosen}});if(conflict)return res.status(409).json({message:'One or more seats are already booked.'});const ticketCode=crypto.randomBytes(12).toString('hex');const booking=await Booking.create({user:req.user._id,show:showId,seats:chosen,amount:show.price*chosen.length,status:'confirmed',paymentStatus:'demo_no_payment',ticketCode});await SeatLock.deleteMany({_id:{$in:locks.map(l=>l._id)}});req.app.get("io")?.to("show:"+showId).emit("seats-updated",{showId:String(showId)});const populated=await Booking.findById(booking._id).populate({path:'show',populate:[{path:'movie'},{path:'theatre'}]});const qrData=await QRCode.toDataURL(JSON.stringify({ticketCode,bookingId:String(booking._id),demo:true}));res.status(201).json({booking:populated,qrData,isDemo:true,note:'Demo sample ticket only. No payment was made; this is not valid for cinema entry.'});}));
-r.post('/',protect,asyncHandler(async(req,res)=>{return res.status(410).json({message:'Direct demo checkout is disabled. Use /demo for a clearly labeled sample ticket, or configure Razorpay test keys and use /payment/order then /payment/verify.'}); const {showId,seats,lockIds}=req.body;const chosen=[...new Set(seats||[])];if(!showId||!chosen.length)return res.status(400).json({message:'Show and seats are required'});const show=await Show.findById(showId);if(!show)return res.status(404).json({message:'Show not found'});const now=new Date();const locks=await SeatLock.find({show:showId,user:req.user._id,seatLabel:{$in:chosen},expiresAt:{$gt:now}});if(locks.length!==chosen.length)return res.status(409).json({message:'Your seat lock expired or is missing. Please select seats again.'});const conflict=await Booking.findOne({show:showId,status:'confirmed',seats:{$in:chosen}});if(conflict)return res.status(409).json({message:'Seat already booked. Please choose different seats.'});const ticketCode=crypto.randomBytes(12).toString('hex');const booking=await Booking.create({user:req.user._id,show:showId,seats:chosen,amount:show.price*chosen.length,status:'confirmed',paymentStatus:'paid_test',ticketCode});await SeatLock.deleteMany({_id:{$in:locks.map(l=>l._id)}});const populated=await Booking.findById(booking._id).populate({path:'show',populate:[{path:'movie'},{path:'theatre'}]});const qrData=await QRCode.toDataURL(JSON.stringify({ticketCode,bookingId:String(booking._id)}));res.status(201).json({booking:populated,qrData,note:'Demo checkout: payment is simulated. Connect a verified payment gateway before production.'});}));
-r.get('/mine',protect,asyncHandler(async(req,res)=>res.json(await Booking.find({user:req.user._id}).populate({path:'show',populate:[{path:'movie'},{path:'theatre'}]}).sort({createdAt:-1}))));
-r.patch('/:id/cancel',protect,asyncHandler(async(req,res)=>{const b=await Booking.findOne({_id:req.params.id,user:req.user._id});if(!b)return res.status(404).json({message:'Booking not found'});if(b.status==='cancelled')return res.status(400).json({message:'Booking is already cancelled'});const show=await Show.findById(b.show);if(show&&show.startTime<=new Date())return res.status(400).json({message:'Past shows cannot be cancelled'});b.status='cancelled';b.cancelledAt=new Date();// Cancellation updates the local booking only; no provider refund is initiated.
-await b.save();req.app.get("io")?.to("show:"+b.show).emit("seats-updated",{showId:String(b.show)});res.json({message:'Booking cancelled (demo refund status updated)',booking:b});}));
+import { Router } from 'express';
+import Razorpay from 'razorpay';
+import crypto from 'node:crypto';
+import QRCode from 'qrcode';
+import { Booking, Show, SeatLock } from '../models/index.js';
+import { protect } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+const r = Router();
+function razorpayClient() {
+  if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET)
+    throw Object.assign(
+      new Error(
+        'Razorpay test keys are missing. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET to server/.env.',
+      ),
+      { status: 503 },
+    );
+  return new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+}
+r.post(
+  '/payment/order',
+  protect,
+  asyncHandler(async (req, res) => {
+    const { showId, seats } = req.body;
+    const chosen = [...new Set((seats || []).map(String))];
+    if (!showId || !chosen.length || chosen.length > 6)
+      return res.status(400).json({ message: 'Choose 1–6 seats and a show.' });
+    const show = await Show.findById(showId).populate('movie').populate('theatre');
+    if (!show || !show.isActive || show.startTime <= new Date())
+      return res.status(404).json({ message: 'Show is unavailable.' });
+    const now = new Date();
+    const locks = await SeatLock.find({
+      show: showId,
+      user: req.user._id,
+      seatLabel: { $in: chosen },
+      expiresAt: { $gt: now },
+    });
+    if (locks.length !== chosen.length)
+      return res.status(409).json({ message: 'Your seat hold expired. Select the seats again.' });
+    const booked = await Booking.findOne({
+      show: showId,
+      status: 'confirmed',
+      seats: { $in: chosen },
+    });
+    if (booked) return res.status(409).json({ message: 'One or more seats are already booked.' });
+    const amount = Math.round(Number(show.price) * chosen.length * 100);
+    if (!Number.isFinite(amount) || amount < 100)
+      return res.status(400).json({ message: 'Invalid booking amount.' });
+    const order = await razorpayClient().orders.create({
+      amount,
+      currency: 'INR',
+      receipt: `imv_${Date.now()}`,
+      notes: { userId: String(req.user._id), showId: String(showId), seats: chosen.join(',') },
+    });
+    res.json({
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: process.env.RAZORPAY_KEY_ID,
+      show: { title: show.movie?.title, theatre: show.theatre?.name },
+      seats: chosen,
+    });
+  }),
+);
+r.post(
+  '/payment/verify',
+  protect,
+  asyncHandler(async (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, showId, seats } = req.body;
+    if (!process.env.RAZORPAY_KEY_SECRET)
+      return res.status(503).json({ message: 'Razorpay test keys are not configured.' });
+    const expected = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .digest('hex');
+    if (
+      !razorpay_signature ||
+      Buffer.byteLength(expected) !== Buffer.byteLength(razorpay_signature) ||
+      !crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(razorpay_signature))
+    )
+      return res.status(400).json({ message: 'Payment signature verification failed.' });
+    const client = razorpayClient();
+    const [gatewayOrder, gatewayPayment] = await Promise.all([
+      client.orders.fetch(razorpay_order_id),
+      client.payments.fetch(razorpay_payment_id),
+    ]);
+    const chosen = [...new Set((seats || []).map(String))];
+    if (
+      gatewayPayment.order_id !== razorpay_order_id ||
+      gatewayPayment.status !== 'captured' ||
+      gatewayPayment.amount !== gatewayOrder.amount ||
+      gatewayOrder.notes?.userId !== String(req.user._id) ||
+      gatewayOrder.notes?.showId !== String(showId) ||
+      gatewayOrder.notes?.seats !== chosen.join(',')
+    )
+      return res.status(400).json({ message: 'Payment/order details do not match this booking.' });
+    const show = await Show.findById(showId);
+    if (!show) return res.status(404).json({ message: 'Show not found.' });
+    const now = new Date();
+    const locks = await SeatLock.find({
+      show: showId,
+      user: req.user._id,
+      seatLabel: { $in: chosen },
+      expiresAt: { $gt: now },
+    });
+    if (!chosen.length || locks.length !== chosen.length)
+      return res.status(409).json({
+        message: 'Payment verified, but seat hold expired. Contact support before retrying.',
+      });
+    const conflict = await Booking.findOne({
+      show: showId,
+      status: 'confirmed',
+      seats: { $in: chosen },
+    });
+    if (conflict)
+      return res
+        .status(409)
+        .json({ message: 'Seat conflict detected. Contact support with your payment ID.' });
+    const ticketCode = crypto.randomBytes(12).toString('hex');
+    const booking = await Booking.create({
+      user: req.user._id,
+      show: showId,
+      seats: chosen,
+      amount: show.price * chosen.length,
+      status: 'confirmed',
+      paymentStatus: 'paid_test',
+      ticketCode,
+    });
+    await SeatLock.deleteMany({ _id: { $in: locks.map((l) => l._id) } });
+    req.app
+      .get('io')
+      ?.to('show:' + showId)
+      .emit('seats-updated', { showId: String(showId) });
+    const populated = await Booking.findById(booking._id).populate({
+      path: 'show',
+      populate: [{ path: 'movie' }, { path: 'theatre' }],
+    });
+    const qrData = await QRCode.toDataURL(
+      JSON.stringify({
+        ticketCode,
+        bookingId: String(booking._id),
+        paymentId: razorpay_payment_id,
+      }),
+    );
+    res.status(201).json({
+      booking: populated,
+      qrData,
+      paymentId: razorpay_payment_id,
+      note: 'Payment signature verified in Razorpay test mode. No real money was charged.',
+    });
+  }),
+);
+r.post(
+  '/demo',
+  protect,
+  asyncHandler(async (req, res) => {
+    const { showId } = req.body;
+    const chosen = Array.isArray(req.body.seats) ? [...new Set(req.body.seats.map(String))] : [];
+    if (!showId || !chosen.length || chosen.length > 6)
+      return res.status(400).json({ message: 'Choose 1–6 seats and a show.' });
+    const show = await Show.findById(showId);
+    if (!show || !show.isActive || show.startTime <= new Date())
+      return res.status(404).json({ message: 'Show is unavailable.' });
+    const labels = show.seatLabels?.length
+      ? show.seatLabels
+      : Array.from({ length: show.rows }, (_, i) =>
+          Array.from(
+            { length: show.seatsPerRow },
+            (_, j) => `${String.fromCharCode(65 + i)}${j + 1}`,
+          ),
+        ).flat();
+    if (chosen.some((seat) => !labels.includes(seat)))
+      return res.status(400).json({ message: 'One or more selected seats are invalid.' });
+    const now = new Date();
+    const locks = await SeatLock.find({
+      show: showId,
+      user: req.user._id,
+      seatLabel: { $in: chosen },
+      expiresAt: { $gt: now },
+    });
+    if (locks.length !== chosen.length)
+      return res.status(409).json({ message: 'Your seat hold expired. Select the seats again.' });
+    const conflict = await Booking.findOne({
+      show: showId,
+      status: 'confirmed',
+      seats: { $in: chosen },
+    });
+    if (conflict) return res.status(409).json({ message: 'One or more seats are already booked.' });
+    const ticketCode = crypto.randomBytes(12).toString('hex');
+    const booking = await Booking.create({
+      user: req.user._id,
+      show: showId,
+      seats: chosen,
+      amount: show.price * chosen.length,
+      status: 'confirmed',
+      paymentStatus: 'demo_no_payment',
+      ticketCode,
+    });
+    await SeatLock.deleteMany({ _id: { $in: locks.map((l) => l._id) } });
+    req.app
+      .get('io')
+      ?.to('show:' + showId)
+      .emit('seats-updated', { showId: String(showId) });
+    const populated = await Booking.findById(booking._id).populate({
+      path: 'show',
+      populate: [{ path: 'movie' }, { path: 'theatre' }],
+    });
+    const qrData = await QRCode.toDataURL(
+      JSON.stringify({ ticketCode, bookingId: String(booking._id), demo: true }),
+    );
+    res.status(201).json({
+      booking: populated,
+      qrData,
+      isDemo: true,
+      note: 'Demo sample ticket only. No payment was made; this is not valid for cinema entry.',
+    });
+  }),
+);
+r.post(
+  '/',
+  protect,
+  asyncHandler(async (req, res) => {
+    return res.status(410).json({
+      message:
+        'Direct demo checkout is disabled. Use /demo for a clearly labeled sample ticket, or configure Razorpay test keys and use /payment/order then /payment/verify.',
+    });
+    const { showId, seats, lockIds } = req.body;
+    const chosen = [...new Set(seats || [])];
+    if (!showId || !chosen.length)
+      return res.status(400).json({ message: 'Show and seats are required' });
+    const show = await Show.findById(showId);
+    if (!show) return res.status(404).json({ message: 'Show not found' });
+    const now = new Date();
+    const locks = await SeatLock.find({
+      show: showId,
+      user: req.user._id,
+      seatLabel: { $in: chosen },
+      expiresAt: { $gt: now },
+    });
+    if (locks.length !== chosen.length)
+      return res
+        .status(409)
+        .json({ message: 'Your seat lock expired or is missing. Please select seats again.' });
+    const conflict = await Booking.findOne({
+      show: showId,
+      status: 'confirmed',
+      seats: { $in: chosen },
+    });
+    if (conflict)
+      return res
+        .status(409)
+        .json({ message: 'Seat already booked. Please choose different seats.' });
+    const ticketCode = crypto.randomBytes(12).toString('hex');
+    const booking = await Booking.create({
+      user: req.user._id,
+      show: showId,
+      seats: chosen,
+      amount: show.price * chosen.length,
+      status: 'confirmed',
+      paymentStatus: 'paid_test',
+      ticketCode,
+    });
+    await SeatLock.deleteMany({ _id: { $in: locks.map((l) => l._id) } });
+    const populated = await Booking.findById(booking._id).populate({
+      path: 'show',
+      populate: [{ path: 'movie' }, { path: 'theatre' }],
+    });
+    const qrData = await QRCode.toDataURL(
+      JSON.stringify({ ticketCode, bookingId: String(booking._id) }),
+    );
+    res.status(201).json({
+      booking: populated,
+      qrData,
+      note: 'Demo checkout: payment is simulated. Connect a verified payment gateway before production.',
+    });
+  }),
+);
+r.get(
+  '/mine',
+  protect,
+  asyncHandler(async (req, res) =>
+    res.json(
+      await Booking.find({ user: req.user._id })
+        .populate({ path: 'show', populate: [{ path: 'movie' }, { path: 'theatre' }] })
+        .sort({ createdAt: -1 }),
+    ),
+  ),
+);
+r.patch(
+  '/:id/cancel',
+  protect,
+  asyncHandler(async (req, res) => {
+    const b = await Booking.findOne({ _id: req.params.id, user: req.user._id });
+    if (!b) return res.status(404).json({ message: 'Booking not found' });
+    if (b.status === 'cancelled')
+      return res.status(400).json({ message: 'Booking is already cancelled' });
+    const show = await Show.findById(b.show);
+    if (show && show.startTime <= new Date())
+      return res.status(400).json({ message: 'Past shows cannot be cancelled' });
+    b.status = 'cancelled';
+    b.cancelledAt = new Date(); // Cancellation updates the local booking only; no provider refund is initiated.
+    await b.save();
+    req.app
+      .get('io')
+      ?.to('show:' + b.show)
+      .emit('seats-updated', { showId: String(b.show) });
+    res.json({ message: 'Booking cancelled (demo refund status updated)', booking: b });
+  }),
+);
 export default r;

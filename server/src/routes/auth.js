@@ -1,7 +1,66 @@
-import {Router} from 'express'; import bcrypt from 'bcryptjs'; import jwt from 'jsonwebtoken'; import {User} from '../models/index.js'; import {protect} from '../middleware/auth.js'; import {asyncHandler} from '../utils/asyncHandler.js';
-const r=Router(); const safe=u=>({id:u._id,name:u.name,email:u.email,role:u.role}); const token=u=>jwt.sign({id:u._id},process.env.JWT_SECRET,{expiresIn:'7d'});
-r.post('/register',asyncHandler(async(req,res)=>{const {name,email,password,role='user'}=req.body;if(!name||!email||!password||password.length<8)return res.status(400).json({message:'Name, email and password (8+ characters) are required'});if(!['user','admin'].includes(role))return res.status(400).json({message:'Choose a valid account type'});if(await User.findOne({email}))return res.status(409).json({message:'Email already registered'});const u=await User.create({name,email,passwordHash:await bcrypt.hash(password,12),role});res.status(201).json({message:'Account created. Please sign in.',user:safe(u)});}));
-r.post('/login',asyncHandler(async(req,res)=>{const u=await User.findOne({email:req.body.email});if(!u||!await bcrypt.compare(req.body.password||'',u.passwordHash))return res.status(401).json({message:'Invalid email or password'});res.json({token:token(u),user:safe(u)});}));
-r.get('/me',protect,(req,res)=>{const u=req.user;res.json({user:{id:u._id,name:u.name,email:u.email,role:u.role}})});
-r.patch('/profile',protect,asyncHandler(async(req,res)=>{const name=typeof req.body.name==='string'?req.body.name.trim():'';const email=typeof req.body.email==='string'?req.body.email.trim().toLowerCase():'';if(!name||!email)return res.status(400).json({message:'Name and email are required'});if(!/^\S+@\S+\.\S+$/.test(email))return res.status(400).json({message:'Enter a valid email address'});const duplicate=await User.findOne({email,_id:{$ne:req.user._id}}).select('_id');if(duplicate)return res.status(409).json({message:'Email already registered'});const updated=await User.findByIdAndUpdate(req.user._id,{$set:{name,email}},{new:true,runValidators:true,select:'name email role'});if(!updated)return res.status(404).json({message:'Account not found'});res.json({user:{id:updated._id,name:updated.name,email:updated.email,role:updated.role}})}));
+import { Router } from 'express';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import { User } from '../models/index.js';
+import { protect } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+const r = Router();
+const safe = (u) => ({ id: u._id, name: u.name, email: u.email, role: u.role });
+const token = (u) => jwt.sign({ id: u._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+r.post(
+  '/register',
+  asyncHandler(async (req, res) => {
+    const { name, email, password, role = 'user' } = req.body;
+    if (!name || !email || !password || password.length < 8)
+      return res
+        .status(400)
+        .json({ message: 'Name, email and password (8+ characters) are required' });
+    if (!['user', 'admin'].includes(role))
+      return res.status(400).json({ message: 'Choose a valid account type' });
+    if (await User.findOne({ email }))
+      return res.status(409).json({ message: 'Email already registered' });
+    const u = await User.create({
+      name,
+      email,
+      passwordHash: await bcrypt.hash(password, 12),
+      role,
+    });
+    res.status(201).json({ message: 'Account created. Please sign in.', user: safe(u) });
+  }),
+);
+r.post(
+  '/login',
+  asyncHandler(async (req, res) => {
+    const u = await User.findOne({ email: req.body.email });
+    if (!u || !(await bcrypt.compare(req.body.password || '', u.passwordHash)))
+      return res.status(401).json({ message: 'Invalid email or password' });
+    res.json({ token: token(u), user: safe(u) });
+  }),
+);
+r.get('/me', protect, (req, res) => {
+  const u = req.user;
+  res.json({ user: { id: u._id, name: u.name, email: u.email, role: u.role } });
+});
+r.patch(
+  '/profile',
+  protect,
+  asyncHandler(async (req, res) => {
+    const name = typeof req.body.name === 'string' ? req.body.name.trim() : '';
+    const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    if (!name || !email) return res.status(400).json({ message: 'Name and email are required' });
+    if (!/^\S+@\S+\.\S+$/.test(email))
+      return res.status(400).json({ message: 'Enter a valid email address' });
+    const duplicate = await User.findOne({ email, _id: { $ne: req.user._id } }).select('_id');
+    if (duplicate) return res.status(409).json({ message: 'Email already registered' });
+    const updated = await User.findByIdAndUpdate(
+      req.user._id,
+      { $set: { name, email } },
+      { new: true, runValidators: true, select: 'name email role' },
+    );
+    if (!updated) return res.status(404).json({ message: 'Account not found' });
+    res.json({
+      user: { id: updated._id, name: updated.name, email: updated.email, role: updated.role },
+    });
+  }),
+);
 export default r;
